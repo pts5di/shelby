@@ -1,0 +1,88 @@
+;/*++
+;
+;Copyright (c) 1990-2000  Microsoft Corporation
+;
+;Module Name:
+;    ECHO_2.INF
+;
+;Abstract:
+;    INF file for installing the Driver Frameworks ECHO Driver (DriverSync version)
+;
+;Installation Notes:
+;    Using Devcon: Type "devcon install ECHO_2.inf root\ECHO_2" to install
+;
+;Important:
+;    This INF depends on features for the Driver Store DIRIDs which are available starting Windows 10 1709
+;
+;--*/
+
+[Version]
+Signature="$WINDOWS NT$"
+Class=Sample
+ClassGuid={78A1C341-4539-11d3-B88D-00C04FAD5171}
+Provider=%ProviderString%
+DriverVer=03/20/2003,5.0.3788.0
+CatalogFile=KmdfSamples.cat
+PnpLockdown = 1
+
+[DestinationDirs]
+DefaultDestDir = 13
+
+[SourceDisksNames]
+1 = %DiskId1%,,,""
+
+[SourceDisksFiles]
+ECHO_2.sys  = 1,,
+
+; ================= Class section =====================
+
+[ClassInstall32]
+Addreg=SampleClassReg
+
+[SampleClassReg]
+HKR,,,0,%ClassName%
+HKR,,Icon,,-5
+
+;*****************************************
+; ECHO  Install Section
+;*****************************************
+
+[Manufacturer]
+%StdMfg%=Standard,NT$ARCH$.10.0...16299
+
+[Standard.NT$ARCH$.10.0...16299]
+%ECHO.DeviceDesc%=ECHO_Device, root\ECHO_2
+
+[ECHO_Device.NT]
+CopyFiles=Drivers_Dir
+
+[Drivers_Dir]
+ECHO_2.sys
+
+
+;-------------- Service installation
+[ECHO_Device.NT.Services]
+AddService = ECHO_2,%SPSVCINST_ASSOCSERVICE%, ECHO_Service_Inst
+
+; -------------- ECHO driver install sections
+[ECHO_Service_Inst]
+DisplayName    = %ECHO.SVCDESC%
+ServiceType    = 1               ; SERVICE_KERNEL_DRIVER
+StartType      = 3               ; SERVICE_DEMAND_START
+ErrorControl   = 1               ; SERVICE_ERROR_NORMAL
+ServiceBinary  = %13%\ECHO_2.sys
+
+[ECHO_Device.NT.Wdf]
+KmdfService =  ECHO_2, ECHO_wdfsect
+
+[ECHO_wdfsect]
+KmdfLibraryVersion = $KMDFVERSION$
+
+[Strings]
+SPSVCINST_ASSOCSERVICE = 0x00000002
+ProviderString = "TODO-Set-Provider"
+StdMfg = "(Standard system devices)"
+DiskId1 = "WDF Sample ECHO Installation Disk #1 (DriverSync)"
+ECHO.DeviceDesc = "Sample WDF ECHO Driver (DriverSync)"
+ECHO.SVCDESC = "Sample WDF ECHO Service (DriverSync)"
+ClassName = "Sample Device"
