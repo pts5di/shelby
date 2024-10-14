@@ -52,7 +52,7 @@ AsyncIo(
 BOOLEAN
 PerformWriteReadTest(
     IN HANDLE hDevice,
-    IN ULONG TestLength
+    IN PCHAR StringToSend
     );
 
 BOOL
@@ -72,29 +72,14 @@ main(
     HANDLE hDevice = INVALID_HANDLE_VALUE;
     HANDLE  th1 = NULL;
     BOOLEAN result = TRUE;
+    PCHAR stringToUse = "Hello, world!";
 
-
-    if (argc > 1)  {
-        if(!_strnicmp (argv[1], "-Async", 6) ) {
-            G_PerformAsyncIo = TRUE;
-            if (argc > 2) {
-                G_AsyncIoLoopsNum = atoi(argv[2]);
-                G_LimitedLoops = TRUE;
-            }
-            else {
-                G_LimitedLoops = FALSE;
-            }
-
-        } else {
-            printf("Usage:\n");
-            printf("    Echoapp.exe         --- Send single write and read request synchronously\n");
-            printf("    Echoapp.exe -Async  --- Send reads and writes asynchronously without terminating\n");
-            printf("    Echoapp.exe -Async <number> --- Send <number> reads and writes asynchronously\n");
-            printf("Exit the app anytime by pressing Ctrl-C\n");
-            result = FALSE;
-            goto exit;
-        }
+    if (argc == 2) {
+        stringToUse = argv[1];
+        printf("%s\n", stringToUse);
     }
+
+
 
     if ( !GetDevicePath(
             (LPGUID) &GUID_DEVINTERFACE_ECHO,
@@ -152,12 +137,7 @@ main(
         //
         // Write pattern buffers and read them back, then verify them
         //
-        result = PerformWriteReadTest(hDevice, 512);
-        if(!result) {
-            goto exit;
-        }
-
-        result = PerformWriteReadTest(hDevice, 30*1024);
+        result = PerformWriteReadTest(hDevice, stringToUse);
         if(!result) {
             goto exit;
         }
@@ -181,14 +161,16 @@ exit:
 
 PUCHAR
 CreatePatternBuffer(
-    IN ULONG Length
+    _In_reads_bytes_(Length) PCHAR StringToSend,
+    _In_ unsigned int Length
     )
 {
     unsigned int i;
     PUCHAR p, pBuf;
+    printf("CreatePatternBuffer: %s\n", StringToSend);
 
     pBuf = (PUCHAR)malloc(Length);
-    if( pBuf == NULL ) {
+    if(pBuf == NULL){
         printf("Could not allocate %d byte buffer\n",Length);
         return NULL;
     }
@@ -196,16 +178,18 @@ CreatePatternBuffer(
     p = pBuf;
 
     for(i=0; i < Length; i++ ) {
-        *p = (UCHAR)i;
+        *p = StringToSend[i];
+        printf("%s\n", p);
         p++;
     }
-
+    printf("CreatePatternBuffer done: %s\n", pBuf);
     return pBuf;
 }
 
 BOOLEAN
 VerifyPatternBuffer(
     _In_reads_bytes_(Length) PUCHAR pBuffer,
+    _In_reads_bytes_(Length) PCHAR stringActual,
     _In_ ULONG Length
     )
 {
@@ -214,9 +198,9 @@ VerifyPatternBuffer(
 
     for( i=0; i < Length; i++ ) {
 
-        if( *p != (UCHAR)(i & 0xFF) ) {
+        if( *p != stringActual[i]) {
             printf("Pattern changed. SB 0x%x, Is 0x%x\n",
-                   (UCHAR)(i & 0xFF), *p);
+                   stringActual[i], *p);
             return FALSE;
         }
 
@@ -234,7 +218,7 @@ VerifyPatternBuffer(
 BOOLEAN
 PerformWriteReadTest(
     IN HANDLE hDevice,
-    IN ULONG TestLength
+    IN PCHAR StringToSend
     )
 /*
 */
@@ -243,19 +227,20 @@ PerformWriteReadTest(
     PUCHAR WriteBuffer = NULL,
                    ReadBuffer = NULL;
     BOOLEAN result = TRUE;
+    unsigned int length = static_cast<int>(strlen(StringToSend)) + 1;
 
-    WriteBuffer = CreatePatternBuffer(TestLength);
+    WriteBuffer = CreatePatternBuffer(StringToSend, length);
     if( WriteBuffer == NULL ) {
 
         result = FALSE;
         goto Cleanup;
     }
 
-    ReadBuffer = (PUCHAR)malloc(TestLength);
+    ReadBuffer = (PUCHAR)malloc(length);
     if( ReadBuffer == NULL ) {
 
         printf("PerformWriteReadTest: Could not allocate %d "
-               "bytes ReadBuffer\n",TestLength);
+               "bytes ReadBuffer\n", length);
 
          result = FALSE;
          goto Cleanup;
@@ -269,7 +254,7 @@ PerformWriteReadTest(
 
     if (!WriteFile ( hDevice,
             WriteBuffer,
-            TestLength,
+            length,
             &bytesReturned,
             NULL)) {
 
@@ -281,10 +266,10 @@ PerformWriteReadTest(
 
     } else {
 
-        if( bytesReturned != TestLength ) {
+        if( bytesReturned != length) {
 
             printf("bytes written is not test length! Written %d, "
-                   "SB %d\n",bytesReturned, TestLength);
+                   "SB %d\n",bytesReturned, length);
 
             result = FALSE;
             goto Cleanup;
@@ -292,13 +277,14 @@ PerformWriteReadTest(
 
         printf ("%d Pattern Bytes Written successfully\n",
                 bytesReturned);
+        printf("Wrote: %s\n", WriteBuffer);
     }
 
     bytesReturned = 0;
 
     if ( !ReadFile (hDevice,
             ReadBuffer,
-            TestLength,
+            length,
             &bytesReturned,
             NULL)) {
 
@@ -310,10 +296,10 @@ PerformWriteReadTest(
 
     } else {
 
-        if( bytesReturned != TestLength ) {
+        if( bytesReturned != length) {
 
             printf("bytes Read is not test length! Read %d, "
-                   "SB %d\n",bytesReturned, TestLength);
+                   "SB %d\n",bytesReturned, length);
 
              //
              // Note: Is this a Failure Case??
@@ -323,12 +309,13 @@ PerformWriteReadTest(
         }
 
         printf ("%d Pattern Bytes Read successfully\n",bytesReturned);
+        printf("Read: %s\n", ReadBuffer);
     }
 
     //
     // Now compare
     //
-    if( !VerifyPatternBuffer(ReadBuffer, TestLength) ) {
+    if( !VerifyPatternBuffer(ReadBuffer, StringToSend, length) ) {
 
         printf("Verify failed\n");
 
