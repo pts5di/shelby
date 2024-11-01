@@ -20,6 +20,12 @@ Abstract:
 #pragma alloc_text (PAGE, EchoTimerCreate)
 #endif
 
+#define nullptr 0
+
+
+NTSTATUS
+InvertedNotify(PDEVICE_CONTEXT DevContext, IN WDFMEMORY Memory, IN size_t Length);
+
 NTSTATUS
 EchoQueueInitialize(
     WDFDEVICE Device
@@ -59,6 +65,10 @@ Return Value:
     PQUEUE_CONTEXT queueContext;
     WDF_IO_QUEUE_CONFIG    queueConfig;
     WDF_OBJECT_ATTRIBUTES  queueAttributes;
+    PDEVICE_CONTEXT deviceContext;
+
+
+
 
     PAGED_CODE();
 
@@ -74,6 +84,7 @@ Return Value:
 
     queueConfig.EvtIoRead   = EchoEvtIoRead;
     queueConfig.EvtIoWrite  = EchoEvtIoWrite;
+    queueConfig.EvtIoDeviceControl = InvertedEvtIoDeviceControl;
 
     //
     // Fill in a callback for destroy, and our QUEUE_CONTEXT size
@@ -101,23 +112,33 @@ Return Value:
         return status;
     }
 
+    deviceContext = WdfObjectGet_DEVICE_CONTEXT(Device);
+    deviceContext->PrivateDeviceData = 0;
+
+    WDF_IO_QUEUE_CONFIG_INIT(&queueConfig,
+        WdfIoQueueDispatchManual);
+
+    queueConfig.PowerManaged = WdfFalse;
+
+    status = WdfIoQueueCreate(Device,
+        &queueConfig,
+        WDF_NO_OBJECT_ATTRIBUTES,
+        &deviceContext->NotificationQueue);
+
+    if (!NT_SUCCESS(status)) {
+        KdPrint(("WdfIoQueueCreate failed 0x%x\n", status));
+        return status;
+    }
+
     // Get our Driver Context memory from the returned Queue handle
     queueContext = QueueGetContext(queue);
 
     queueContext->Buffer = NULL;
-    queueContext->Timer = NULL;
 
     queueContext->CurrentRequest = NULL;
     queueContext->CurrentStatus = STATUS_INVALID_DEVICE_REQUEST;
 
-    //
-    // Create the Queue timer
-    //
-    status = EchoTimerCreate(&queueContext->Timer, TIMER_PERIOD, queue);
-    if (!NT_SUCCESS(status)) {
-        KdPrint(("Error creating timer 0x%x\n",status));
-        return status;
-    }
+
 
     return status;
 }
@@ -392,7 +413,9 @@ Return Value:
 {
     NTSTATUS Status;
     WDFMEMORY memory;
-    PQUEUE_CONTEXT queueContext = QueueGetContext(Queue);
+    PDEVICE_CONTEXT deviceContext = WdfObjectGet_DEVICE_CONTEXT(WdfIoQueueGetDevice(Queue));
+    deviceContext->PrivateDeviceData = 0;
+
 
     _Analysis_assume_(Length > 0);
 
@@ -416,50 +439,20 @@ Return Value:
         return;
     }
 
-    // Release previous buffer if set
-    if( queueContext->Buffer != NULL ) {
-        ExFreePool(queueContext->Buffer);
-        queueContext->Buffer = NULL;
-        queueContext->Length = 0L;
-    }
+    WdfRequestSetInformation(Request, (ULONG_PTR)Length);
 
-    queueContext->Buffer = ExAllocatePool2(POOL_FLAG_NON_PAGED, Length, 'sam1');
-    if( queueContext->Buffer == NULL ) {
-        KdPrint(("EchoEvtIoWrite: Could not allocate %Iu byte buffer\n", Length));
-        WdfRequestComplete(Request, STATUS_INSUFFICIENT_RESOURCES);
-        return;
-    }
-
-
-    // Copy the memory in
-    Status = WdfMemoryCopyToBuffer( memory,
-                                    0,  // offset into the source memory
-                                    queueContext->Buffer,
-                                    Length );
-    if( !NT_SUCCESS(Status) ) {
-        KdPrint(("EchoEvtIoWrite WdfMemoryCopyToBuffer failed 0x%x\n", Status));
+    Status = InvertedNotify(deviceContext, memory, Length);
+    if (!NT_SUCCESS(Status)) {
+        KdPrint(("EchoEvtIoWrite InvertedNotify failed 0x%x\n", Status));
         WdfVerifierDbgBreakPoint();
 
-        ExFreePool(queueContext->Buffer);
-        queueContext->Buffer = NULL;
-        queueContext->Length = 0L;
-
+        WdfRequestSetInformation(Request, (ULONG_PTR)Length);
         WdfRequestComplete(Request, Status);
         return;
     }
 
+    WdfRequestComplete(Request, Status);
 
-    queueContext->Length = (ULONG) Length;
-
-    // Set transfer information
-    WdfRequestSetInformation(Request, (ULONG_PTR)Length);
-
-    // Specify the request is cancelable
-    WdfRequestMarkCancelable(Request, EchoEvtRequestCancel);
-
-    // Defer the completion to another thread from the timer dpc
-    queueContext->CurrentRequest = Request;
-    queueContext->CurrentStatus  = Status;
 
     return;
 }
@@ -530,3 +523,122 @@ Return Value:
 }
 
 
+
+NTSTATUS
+InvertedNotify(PDEVICE_CONTEXT DevContext,
+    IN WDFMEMORY Memory,
+    IN size_t Length
+)
+{
+    NTSTATUS status;
+    ULONG_PTR info;
+    WDFREQUEST notifyRequest;
+    PCSTR  bufferPointer;
+
+
+    status = WdfIoQueueRetrieveNextRequest(DevContext->NotificationQueue,
+        &notifyRequest);
+
+    //
+    // Be sure we got a Request
+    // 
+    if (!NT_SUCCESS(status)) {
+
+        //
+        // Nope!  We were NOT able to successfully remove a Request from the
+        // notification queue.  Well, perhaps there aren't any right now.
+        // Whatever... not much we can do in this example about this.
+        // 
+#if DBG
+        DbgPrint("InvertedNotify: Failed to retrieve request. Status = 0x%0x\n",
+            status);
+#endif
+        return status;
+    }
+
+    //
+    // We've successfully removed a Request from the queue of pending 
+    // notification IOCTLs.
+    // 
+
+    //
+    // Get a a pointer to the output buffer that was passed-in with the user
+    // notification IOCTL.  We'll use this to return additional info about
+    // the event. The minimum size Output Buffer that we need is sizeof(LONG).
+    // We don't need this call to return us what the actual size is.
+    // 
+    status = WdfRequestRetrieveOutputBuffer(notifyRequest,
+        Length,
+        (PVOID*)&bufferPointer,
+        nullptr);
+    //
+    // Valid OutBuffer?
+    // 
+    if (!NT_SUCCESS(status)) {
+
+        //
+        // The OutBuffer associated with the pending notification Request that
+        // we just dequeued is somehow not valid. This doesn't really seem
+        // possible, but... you know... they return you a status, you have to
+        // check it and handle it.
+        // 
+#if DBG
+        DbgPrint("InvertedNotify: WdfRequestRetrieveOutputBuffer failed.  Status = 0x%0x\n",
+            status);
+#endif
+
+        //
+        // Complete the IOCTL_OSR_INVERT_NOTIFICATION with success, but
+        // indicate that we're not returning any additional information.
+        // 
+        status = STATUS_SUCCESS;
+        info = 0;
+
+    }
+    else {
+
+        //
+        // We successfully retrieved a Request from the notification Queue
+        // AND we retrieved an output buffer into which to return some
+        // additional information.
+        // 
+
+        //
+        // As part of this example, we return a monotonically increasing
+        // sequence number with each notification.  In a real driver, this
+        // could be information (of any size) describing or identifying the
+        // event.
+        // 
+        // Of course, you don't HAVE to return any information with the
+        // notification.  In that case, you can skip the call to 
+        // WdfRequestRetrieveOutputBuffer and such.
+        // 
+        DbgPrint("ASDF");
+        DbgPrint(("%s\n", bufferPointer));
+        status = WdfMemoryCopyToBuffer(Memory,
+            0,  // offset into the source memory
+            (PVOID)bufferPointer,
+            Length);
+        if (!NT_SUCCESS(status)) {
+            KdPrint(("EchoEvtIoWrite WdfMemoryCopyToBuffer failed 0x%x\n", status));
+            WdfVerifierDbgBreakPoint();
+
+            
+            return status;
+        }
+
+        //
+        // Complete the IOCTL_OSR_INVERT_NOTIFICATION with success, indicating
+        // we're returning a longword of data in the user's OutBuffer
+        // 
+        status = STATUS_SUCCESS;
+        info = (ULONG_PTR)Length;
+    }
+
+    //
+    // And now... NOTIFY the user about the event. We do this just
+    // by completing the dequeued Request.
+    //
+    WdfRequestCompleteWithInformation(notifyRequest, status, info);
+    return status;
+}

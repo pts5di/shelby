@@ -43,6 +43,9 @@ Abstract:
 #pragma alloc_text (INIT, EchoPrintDriverVersion)
 #pragma alloc_text (PAGE, EchoEvtDeviceAdd)
 #endif
+#define IOCTL_OSR_INVERT_NOTIFICATION CTL_CODE(FILE_DEVICE_INVERTED, 2049, METHOD_BUFFERED, FILE_ANY_ACCESS)
+#define FILE_DEVICE_INVERTED 0xCF54
+#define nullptr 0
 
 
 NTSTATUS
@@ -200,3 +203,87 @@ Return Value:
     return STATUS_SUCCESS;
 }
 
+VOID
+InvertedEvtIoDeviceControl(WDFQUEUE Queue,
+    WDFREQUEST Request,
+    size_t OutputBufferLength,
+    size_t InputBufferLength,
+    ULONG IoControlCode)
+{
+    PDEVICE_CONTEXT devContext;
+    NTSTATUS status;
+    ULONG_PTR info;
+
+    UNREFERENCED_PARAMETER(OutputBufferLength);
+    UNREFERENCED_PARAMETER(InputBufferLength);
+
+    devContext = WdfObjectGet_DEVICE_CONTEXT(
+        WdfIoQueueGetDevice(Queue));
+
+    //
+    // Set the default completion status and information field
+    // 
+    status = STATUS_INVALID_PARAMETER;
+    info = 0;
+
+#if DBG
+    DbgPrint("InvertedEvtIoDeviceControl\n");
+#endif
+
+    switch (IoControlCode) {
+
+        //
+        // This IOCTL are sent by the user application, and will be completed
+        // by the driver when an event occurs.
+        // 
+    case IOCTL_OSR_INVERT_NOTIFICATION: {
+
+        //
+        // We return an 32-bit value with each completion notification.
+        // Be sure the user's data buffer is at least long enough for that.
+        // 
+        if (OutputBufferLength < sizeof(LONG)) {
+
+            //
+            // Not enough space? Complete the request with
+            // STATUS_INVALID_PARAMETER (as set previously).
+            // 
+            break;
+        }
+
+
+        status = WdfRequestForwardToIoQueue(Request,
+            devContext->NotificationQueue);
+
+        //
+        // If we can't forward the Request to our holding queue,
+        // we have to complete it.  We'll use whatever status we get
+        // back from WdfRequestForwardToIoQueue.
+        // 
+        if (!NT_SUCCESS(status)) {
+            break;
+        }
+
+        //
+        // *** RETURN HERE WITH REQUEST PENDING ***
+        //     We do not break, we do not fall through.
+        //
+        return;
+    }
+
+    default: {
+#if DBG
+        DbgPrint("InvertedEvtIoDeviceControl: Invalid IOCTL received\n");
+#endif
+        break;
+    }
+
+    }
+
+    //
+    // Complete the received Request
+    // 
+    WdfRequestCompleteWithInformation(Request,
+        status,
+        info);
+}

@@ -22,7 +22,8 @@ Abstract:
 typedef struct _DEVICE_CONTEXT
 {
     ULONG PrivateDeviceData;  // just a placeholder
-
+    WDFQUEUE    NotificationQueue;
+    LONG       Sequence;
 } DEVICE_CONTEXT, *PDEVICE_CONTEXT;
 
 //
@@ -45,4 +46,4 @@ EchoDeviceCreate(
 //
 EVT_WDF_DEVICE_SELF_MANAGED_IO_INIT EchoEvtDeviceSelfManagedIoStart;
 EVT_WDF_DEVICE_SELF_MANAGED_IO_SUSPEND EchoEvtDeviceSelfManagedIoSuspend;
-
+EVT_WDF_IO_QUEUE_IO_DEVICE_CONTROL InvertedEvtIoDeviceControl;

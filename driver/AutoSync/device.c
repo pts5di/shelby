@@ -136,7 +136,7 @@ Return Value:
 
 --*/
 {
-    PQUEUE_CONTEXT queueContext = QueueGetContext(WdfDeviceGetDefaultQueue(Device));
+    //PQUEUE_CONTEXT queueContext = QueueGetContext(WdfDeviceGetDefaultQueue(Device));
     LARGE_INTEGER DueTime;
 
     KdPrint(("--> EchoEvtDeviceSelfManagedIoInit\n"));
@@ -148,8 +148,6 @@ Return Value:
     WdfIoQueueStart(WdfDeviceGetDefaultQueue(Device));
 
     DueTime.QuadPart = WDF_REL_TIMEOUT_IN_MS(100);
-
-    WdfTimerStart(queueContext->Timer,  DueTime.QuadPart);
 
     KdPrint(( "<-- EchoEvtDeviceSelfManagedIoInit\n"));
 
@@ -180,7 +178,7 @@ Return Value:
 
 --*/
 {
-    PQUEUE_CONTEXT queueContext = QueueGetContext(WdfDeviceGetDefaultQueue(Device));
+    //PQUEUE_CONTEXT queueContext = QueueGetContext(WdfDeviceGetDefaultQueue(Device));
 
     PAGED_CODE();
 
@@ -202,7 +200,7 @@ Return Value:
     //
     // Stop the watchdog timer and wait for DPC to run to completion if it's already fired.
     //
-    WdfTimerStop(queueContext->Timer, TRUE);
+    
 
     KdPrint(( "<-- EchoEvtDeviceSelfManagedIoSuspend\n"));
 

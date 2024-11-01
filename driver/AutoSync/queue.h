@@ -14,10 +14,11 @@ Abstract:
 --*/
 
 // Set max write length for testing
-#define MAX_WRITE_LENGTH 1024*40
 
 // Set timer period in ms
 #define TIMER_PERIOD     1000*2
+
+#define MAX_WRITE_LENGTH 512
 
 //
 // This is the context that can be placed per queue
@@ -28,9 +29,6 @@ typedef struct _QUEUE_CONTEXT {
     // Here we allocate a buffer from a test write so it can be read back
     PVOID Buffer;
     ULONG Length;
-
-    // Timer DPC for this queue
-    WDFTIMER   Timer;
 
     // Virtual I/O
     WDFREQUEST  CurrentRequest;
@@ -61,4 +59,7 @@ EchoTimerCreate(
     IN WDFQUEUE        Queue
     );
 
+
 EVT_WDF_TIMER EchoEvtTimerFunc;
+
+
