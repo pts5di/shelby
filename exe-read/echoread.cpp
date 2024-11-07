@@ -140,42 +140,52 @@ main(
     //
     // Test the IOCTL interface
     //
-    DeviceIoControl(driverHandle,
-        static_cast<DWORD>(IOCTL_OSR_INVERT_NOTIFICATION),
-        nullptr,                      // Ptr to InBuffer
-        0,                            // Length of InBuffer
-        &wrap->ReturnedSequence,      // Ptr to OutBuffer
-        sizeof(char)*512,                 // Length of OutBuffer
-        nullptr,                      // BytesReturned
-        &wrap->Overlapped);           // Ptr to Overlapped structure
 
-    code = GetLastError();
 
-    if (code != ERROR_IO_PENDING) {
 
-        printf("DeviceIoControl failed with error 0x%lx\n", code);
+    while(true){
 
-        return(code);
+
+        DeviceIoControl(driverHandle,
+            static_cast<DWORD>(IOCTL_OSR_INVERT_NOTIFICATION),
+            nullptr,                      // Ptr to InBuffer
+            0,                            // Length of InBuffer
+            &wrap->ReturnedSequence,      // Ptr to OutBuffer
+            sizeof(char) * 512,                 // Length of OutBuffer
+            nullptr,                      // BytesReturned
+            &wrap->Overlapped);           // Ptr to Overlapped structure
+
+        code = GetLastError();
+
+        if (code != ERROR_IO_PENDING) {
+
+            printf("DeviceIoControl failed with error 0x%lx\n", code);
+
+            return(code);
+
+        }
+
+        if (!GetQueuedCompletionStatus(completionPortHandle,                // Completion port handle
+            &byteCount,                // Bytes transferred
+            &compKey,                  // Completion key... don't care
+            &overlapped,               // OVERLAPPED structure
+            1000000))
+        {                  // Notification time-out interval
+            code = GetLastError();
+
+            printf("GetQueuedCompletionStatus failed with error 0x%lx\n", code);
+
+            return(code);
+
+
+        }
+        wrap = reinterpret_cast<POVL_WRAPPER>(overlapped);
+        printf(">>> Notification received.\n");
+        printf("Sequence = %s\n", wrap->ReturnedSequence);
 
     }
 
-    if (!GetQueuedCompletionStatus(completionPortHandle,                // Completion port handle
-        &byteCount,                // Bytes transferred
-        &compKey,                  // Completion key... don't care
-        &overlapped,               // OVERLAPPED structure
-        1000000)) 
-    {                  // Notification time-out interval
-        code = GetLastError();
 
-        printf("GetQueuedCompletionStatus failed with error 0x%lx\n", code);
-
-        return(code);
-
-    
-    }   
-    wrap = reinterpret_cast<POVL_WRAPPER>(overlapped);
-    printf(">>> Notification received.\n");
-    printf("Sequence = %s\n", wrap->ReturnedSequence);
 
 exit:
     if (completionPortHandle != INVALID_HANDLE_VALUE) {

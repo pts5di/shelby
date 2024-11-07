@@ -417,6 +417,7 @@ Return Value:
     deviceContext->PrivateDeviceData = 0;
 
 
+
     _Analysis_assume_(Length > 0);
 
     KdPrint(("EchoEvtIoWrite Called! Queue 0x%p, Request 0x%p Length %Iu\n",
@@ -428,31 +429,36 @@ Return Value:
         WdfRequestCompleteWithInformation(Request, STATUS_BUFFER_OVERFLOW, 0L);
         return;
     }
-
+    
     // Get the memory buffer
     Status = WdfRequestRetrieveInputMemory(Request, &memory);
     if( !NT_SUCCESS(Status) ) {
         KdPrint(("EchoEvtIoWrite Could not get request memory buffer 0x%x\n",
-                 Status));
+                    Status));
         WdfVerifierDbgBreakPoint();
         WdfRequestComplete(Request, Status);
         return;
     }
 
     WdfRequestSetInformation(Request, (ULONG_PTR)Length);
+    do {
+        Status = InvertedNotify(deviceContext, memory, Length);
+        if (Status == STATUS_NO_MORE_ENTRIES) {
+            Status = STATUS_SUCCESS;
+            break;
+        }
+        if (!NT_SUCCESS(Status)) {
+            KdPrint(("EchoEvtIoWrite InvertedNotify failed 0x%x\n", Status));
+            WdfVerifierDbgBreakPoint();
 
-    Status = InvertedNotify(deviceContext, memory, Length);
-    if (!NT_SUCCESS(Status)) {
-        KdPrint(("EchoEvtIoWrite InvertedNotify failed 0x%x\n", Status));
-        WdfVerifierDbgBreakPoint();
-
-        WdfRequestSetInformation(Request, (ULONG_PTR)Length);
-        WdfRequestComplete(Request, Status);
-        return;
-    }
+            WdfRequestSetInformation(Request, (ULONG_PTR)Length);
+            WdfRequestComplete(Request, Status);
+            return;
+        } 
+    
+    } while (Status != STATUS_NO_MORE_ENTRIES);
 
     WdfRequestComplete(Request, Status);
-
 
     return;
 }
