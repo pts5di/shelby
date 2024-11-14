@@ -45,6 +45,7 @@ Abstract:
 #endif
 #define IOCTL_OSR_INVERT_NOTIFICATION CTL_CODE(FILE_DEVICE_INVERTED, 2049, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define FILE_DEVICE_INVERTED 0xCF54
+#define IOCTL_ADD_READER CTL_CODE(FILE_DEVICE_INVERTED, 2050, METHOD_BUFFERED, FILE_ANY_ACCESS)
 #define nullptr 0
 
 
@@ -213,6 +214,9 @@ InvertedEvtIoDeviceControl(WDFQUEUE Queue,
     PDEVICE_CONTEXT devContext;
     NTSTATUS status;
     ULONG_PTR info;
+    PULONG bufferPointer;
+    ULONG readerId;
+    ULONG messageId;
 
     UNREFERENCED_PARAMETER(OutputBufferLength);
     UNREFERENCED_PARAMETER(InputBufferLength);
@@ -231,6 +235,64 @@ InvertedEvtIoDeviceControl(WDFQUEUE Queue,
 #endif
 
     switch (IoControlCode) {
+
+
+    case IOCTL_ADD_READER: {
+        
+        if (OutputBufferLength < sizeof(LONG)) {
+
+            break;
+        }
+
+        status = WdfRequestRetrieveOutputBuffer(Request,
+            sizeof(ULONG)*2,
+            (PVOID*)&bufferPointer,
+            nullptr);
+        //
+        // Valid OutBuffer?
+        // 
+        if (!NT_SUCCESS(status)) {
+
+            //
+            // The OutBuffer associated with the pending notification Request that
+            // we just dequeued is somehow not valid. This doesn't really seem
+            // possible, but... you know... they return you a status, you have to
+            // check it and handle it.
+            // 
+#if DBG
+            DbgPrint("InvertedEvtIoDeviceControl: WdfRequestRetrieveOutputBuffer failed.  Status = 0x%0x\n",
+                status);
+#endif
+
+            //
+            // Complete the IOCTL_OSR_INVERT_NOTIFICATION with success, but
+            // indicate that we're not returning any additional information.
+            // 
+            status = STATUS_UNSUCCESSFUL;
+            info = 0;
+
+        }
+        else {
+            // READER ID
+            bufferPointer[0] = 0;
+
+            //MESSAGE ID
+            bufferPointer[1] = 0;
+        }
+
+        WdfRequestComplete(Request, status);
+
+
+        if (!NT_SUCCESS(status)) {
+            break;
+        }
+
+        //
+        // *** RETURN HERE WITH REQUEST PENDING ***
+        //     We do not break, we do not fall through.
+        //
+        return;
+    }
 
         //
         // This IOCTL are sent by the user application, and will be completed
@@ -251,7 +313,52 @@ InvertedEvtIoDeviceControl(WDFQUEUE Queue,
             break;
         }
 
+        if (InputBufferLength < sizeof(ULONG) * 2) {
 
+            break;
+        }
+
+        status = WdfRequestRetrieveInputBuffer(Request,
+            sizeof(ULONG) * 2,
+            (PVOID*)&bufferPointer,
+            nullptr);
+        //
+        // Valid OutBuffer?
+        // 
+        if (!NT_SUCCESS(status)) {
+
+            //
+            // The InBuffer associated with the pending notification Request that
+            // we just dequeued is somehow not valid. This doesn't really seem
+            // possible, but... you know... they return you a status, you have to
+            // check it and handle it.
+            // 
+#if DBG
+            DbgPrint("InvertedEvtIoDeviceControl: WdfRequestRetrieveInputBuffer failed.  Status = 0x%0x\n",
+                status);
+#endif
+
+            //
+            // Complete the IOCTL_OSR_INVERT_NOTIFICATION with success, but
+            // indicate that we're not returning any additional information.
+            // 
+            status = STATUS_UNSUCCESSFUL;
+            info = 0;
+
+        }
+        else {
+            // READER ID
+            readerId = bufferPointer[0];
+
+            KdPrint(("readerId = %u\n", readerId));
+
+            //MESSAGE ID
+            messageId = bufferPointer[1];
+            KdPrint(("messageId = %u\n", messageId));
+
+
+        }
+        
         status = WdfRequestForwardToIoQueue(Request,
             devContext->NotificationQueue);
 

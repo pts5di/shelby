@@ -77,6 +77,8 @@ main(
     DWORD   code;
     BOOLEAN result = TRUE;
     POVL_WRAPPER wrap;
+    OVERLAPPED ovl;
+    memset(&ovl, 0, sizeof(OVERLAPPED));
 
     if (argc == 2) {
         stringToUse = argv[1];
@@ -140,16 +142,50 @@ main(
     //
     // Test the IOCTL interface
     //
+    PULONG IdSet = static_cast<PULONG>(malloc(sizeof(ULONG) * 2));
+    DeviceIoControl(driverHandle,
+        static_cast<DWORD>(IOCTL_ADD_READER),
+        nullptr,                      // Ptr to InBuffer
+        0,                            // Length of InBuffer
+        &IdSet,                       // Ptr to OutBuffer
+        sizeof(ULONG) * 2,            // Length of OutBuffer
+        nullptr,                      // BytesReturned
+        &ovl);
 
+    code = GetLastError();
+
+    if (code != ERROR_IO_PENDING) {
+
+        printf("while: DeviceIoControl failed with error 0x%lx\n", code);
+
+        return(code);
+
+    }
+
+    if (!GetQueuedCompletionStatus(completionPortHandle,                // Completion port handle
+        &byteCount,                // Bytes transferred
+        &compKey,                  // Completion key... don't care
+        &overlapped,               // OVERLAPPED structure
+        1000000))
+    {                  // Notification time-out interval
+        code = GetLastError();
+
+        printf("while: GetQueuedCompletionStatus failed with error 0x%lx\n", code);
+
+        return(code);
+
+
+    }
 
 
     while(true){
-
+        memset(wrap, 0, sizeof(OVL_WRAPPER));
+        overlapped = nullptr;
 
         DeviceIoControl(driverHandle,
             static_cast<DWORD>(IOCTL_OSR_INVERT_NOTIFICATION),
-            nullptr,                      // Ptr to InBuffer
-            0,                            // Length of InBuffer
+            IdSet,                      // Ptr to InBuffer
+            sizeof(ULONG)*2,              // Length of InBuffer
             &wrap->ReturnedSequence,      // Ptr to OutBuffer
             sizeof(char) * 512,                 // Length of OutBuffer
             nullptr,                      // BytesReturned
