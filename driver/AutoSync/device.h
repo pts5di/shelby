@@ -15,15 +15,20 @@ Abstract:
 
 #include "public.h"
 
+#define NUM_MESSAGES 2000
+#define MESSAGE_SIZE 512
+
 //
 // The device context performs the same job as
 // a WDM device extension in the driver frameworks
 //
 typedef struct _DEVICE_CONTEXT
 {
-    ULONG PrivateDeviceData;  // just a placeholder
+    ULONG   PrivateDeviceData;  // just a placeholder
     WDFQUEUE    NotificationQueue;
     LONG       Sequence;
+    CHAR   Messages[NUM_MESSAGES][MESSAGE_SIZE];
+    LONG    CurrentMessage;
 } DEVICE_CONTEXT, *PDEVICE_CONTEXT;
 
 //

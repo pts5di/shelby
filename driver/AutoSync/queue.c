@@ -440,6 +440,21 @@ Return Value:
         return;
     }
 
+    // TODO: place the message into the array in device_context(see device.h)
+    // deviceContext->Messages[deviceContext->CurrentMessage][0] = ;
+
+    Status = WdfMemoryCopyToBuffer(memory,
+        0,  // offset into the source memory
+        (PVOID)(deviceContext->Messages[deviceContext->CurrentMessage]),
+        Length);
+    if (!NT_SUCCESS(Status)) {
+        KdPrint(("EchoEvtIoWrite WdfMemoryCopyToBuffer failed 0x%x\n", Status));
+        WdfVerifierDbgBreakPoint();
+
+        WdfRequestComplete(Request, Status);
+        return;
+    }
+
     WdfRequestSetInformation(Request, (ULONG_PTR)Length);
     do {
         Status = InvertedNotify(deviceContext, memory, Length);
@@ -536,6 +551,7 @@ InvertedNotify(PDEVICE_CONTEXT DevContext,
     IN size_t Length
 )
 {
+    Memory; // TODO: unnecessary reference to avoid "unreferenced formal parameter"
     NTSTATUS status;
     ULONG_PTR info;
     WDFREQUEST notifyRequest;
@@ -621,10 +637,14 @@ InvertedNotify(PDEVICE_CONTEXT DevContext,
         // 
         DbgPrint("ASDF");
         DbgPrint(("%s\n", bufferPointer));
-        status = WdfMemoryCopyToBuffer(Memory,
-            0,  // offset into the source memory
-            (PVOID)bufferPointer,
-            Length);
+        for (int i = 0; i < Length; i++) {
+            ((CHAR*)bufferPointer)[i] = DevContext->Messages[DevContext->CurrentMessage][i];
+        }
+        
+        // status = WdfMemoryCopyToBuffer(Memory,
+        //    0,  // offset into the source memory
+        //    (PVOID)bufferPointer,
+        //    Length);
         if (!NT_SUCCESS(status)) {
             KdPrint(("EchoEvtIoWrite WdfMemoryCopyToBuffer failed 0x%x\n", status));
             WdfVerifierDbgBreakPoint();
